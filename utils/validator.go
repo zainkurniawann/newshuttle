@@ -9,7 +9,7 @@ import (
 )
 
 func CustomPhoneValidator(fl validator.FieldLevel) bool {
-	phoneRegex := `^(\+?)([0-9]{12,15})$`
+	phoneRegex := `^(\+?)([0-9]{10,15})$`
 	value := fl.Field().String()
 	return regexp.MustCompile(phoneRegex).MatchString(value)
 }

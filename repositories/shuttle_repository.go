@@ -13,7 +13,9 @@ import (
 )
 
 type ShuttleRepositoryInterface interface {
+	CountShuttleCurrentTime() (int, error)
 	CountShuttlesByParent(parentUUID uuid.UUID) (int, error)
+	CountShuttleByDate(date string) (int, error)
 	FetchShuttleTrackByParent(parentUUID uuid.UUID) ([]dto.ShuttleResponse, error)
 	FetchAllShuttleByParent(offset, limit int, sortField, sortDirection string, parentUUID uuid.UUID) ([]dto.ShuttleAllResponse, error)
 	FetchAllShuttleByDriver(driverUUID uuid.UUID) ([]dto.ShuttleAllResponse, error)
@@ -32,6 +34,23 @@ func NewShuttleRepository(DB *sqlx.DB) ShuttleRepositoryInterface {
 	}
 }
 
+func (r *ShuttleRepository) CountShuttleCurrentTime() (int, error) {
+    query := `
+    SELECT COUNT(st.shuttle_uuid)
+    FROM shuttle st
+    WHERE DATE(st.created_at) = CURRENT_DATE
+    `
+
+    var total int
+    err := r.DB.Get(&total, query)
+    if err != nil {
+        return 0, err // Kembalikan nilai 0 jika terjadi error
+    }
+
+    return total, nil // Kembalikan total dan nil jika tidak ada error
+}
+
+
 func (r *ShuttleRepository) CountShuttlesByParent(parentUUID uuid.UUID) (int, error) {
     query := `
     SELECT COUNT(*)
@@ -47,6 +66,23 @@ func (r *ShuttleRepository) CountShuttlesByParent(parentUUID uuid.UUID) (int, er
     }
 
     return total, nil
+}
+
+func (r *ShuttleRepository) CountShuttleByDate(date string) (int, error) {
+	query := `
+    SELECT COUNT(st.shuttle_uuid)
+    FROM shuttle st
+    WHERE DATE(st.created_at) = $1
+    `
+
+	var total int
+	err := r.DB.Get(&total, query, date)
+	if err != nil {
+		log.Printf("Gagal menghitung shuttle untuk tanggal %s: %v", date, err)
+		return 0, err
+	}
+
+	return total, nil
 }
 
 func (r *ShuttleRepository) FetchShuttleTrackByParent(parentUUID uuid.UUID) ([]dto.ShuttleResponse, error) {

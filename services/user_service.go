@@ -114,7 +114,8 @@ func (service *UserService) GetAllSuperAdmin(page int, limit int, sortField, sor
 func (service *UserService) GetAllSchoolAdmin(page int, limit int, sortField, sortDirection string) ([]dto.UserResponseDTO, int, error) {
 	offset := (page - 1) * limit
 
-	users, school, err := service.userRepository.FetchAllSchoolAdmins(offset, limit, sortField, sortDirection)
+	// Ambil semua user dengan details dari repository
+	users, err := service.userRepository.FetchAllSchoolAdmins(offset, limit, sortField, sortDirection)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -134,25 +135,8 @@ func (service *UserService) GetAllSchoolAdmin(page int, limit int, sortField, so
 			Status:     user.Status,
 			LastActive: safeTimeFormat(user.LastActive),
 			CreatedAt:  safeTimeFormat(user.CreatedAt),
+			Details:    user.DetailsJSON, // Gunakan langsung dari hasil query
 		}
-
-		schoolAdminDetails, err := service.userRepository.FetchSchoolAdminDetails(user.UUID)
-		if err != nil {
-			return nil, 0, err
-		}
-
-		detailsJSON, err := json.Marshal(dto.SchoolAdminDetailsResponseDTO{
-			SchoolName: school.Name,
-			Picture:    schoolAdminDetails.Picture,
-			FirstName:  schoolAdminDetails.FirstName,
-			LastName:   schoolAdminDetails.LastName,
-			Gender:     dto.Gender(schoolAdminDetails.Gender),
-			Phone:      schoolAdminDetails.Phone,
-		})
-		if err != nil {
-			return nil, 0, err
-		}
-		userDTO.Details = detailsJSON
 
 		usersDTO = append(usersDTO, userDTO)
 	}

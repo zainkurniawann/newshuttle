@@ -7,6 +7,7 @@ import (
 	"log"
 
 	// "log"
+	"shuttle/models/dto"
 	"shuttle/models/entity"
 
 	"github.com/google/uuid"
@@ -29,7 +30,7 @@ type UserRepositoryInterface interface {
 	CountSchoolAdmin() (int, error)
 
 	FetchAllSuperAdmins(offset, limit int, sortField, sortDirection string) ([]entity.User, error)
-	FetchAllSchoolAdmins(offset, limit int, sortField, sortDirection string) ([]entity.User, entity.School, error)
+	FetchAllSchoolAdmins(offset int, limit int, sortField string, sortDirection string) ([]entity.User, error)
 	FetchAllDrivers(offset int, limit int, sortField string, sortDirection string) ([]entity.User, entity.School, entity.Vehicle, error)
 	FetchSpecDriverFromAllSchools(userUUID string) (entity.User, entity.School, entity.Vehicle, error)
 
@@ -420,11 +421,8 @@ func (r *userRepository) FetchAllSuperAdmins(offset int, limit int, sortField st
 	return users, nil
 }
 
-func (r *userRepository) FetchAllSchoolAdmins(offset int, limit int, sortField string, sortDirection string) ([]entity.User, entity.School, error) {
+func (r *userRepository) FetchAllSchoolAdmins(offset int, limit int, sortField string, sortDirection string) ([]entity.User, error) {
 	var users []entity.User
-	var user entity.User
-	var details entity.SchoolAdminDetails
-	var school entity.School
 
 	query := fmt.Sprintf(`
         SELECT
@@ -453,31 +451,43 @@ func (r *userRepository) FetchAllSchoolAdmins(offset int, limit int, sortField s
 
 	rows, err := r.DB.Queryx(query, limit, offset)
 	if err != nil {
-		return nil, entity.School{}, err
+		return nil, err
 	}
 	defer rows.Close()
 
 	for rows.Next() {
+		var user entity.User
+		var details entity.SchoolAdminDetails
+		var schoolName string // Variabel lokal untuk school_name
+
 		err := rows.Scan(
 			&user.UUID, &user.Username, &user.Email,
 			&user.Status, &user.LastActive, &user.CreatedAt, &user.CreatedBy,
 			&details.SchoolUUID, &details.Picture, &details.FirstName, &details.LastName,
-			&details.Gender, &details.Phone, &school.Name,
+			&details.Gender, &details.Phone, &schoolName, // Ambil school_name di sini
 		)
 		if err != nil {
-			return nil, entity.School{}, err
+			return nil, err
 		}
 
-		detailsJSON, err := json.Marshal(details)
+		// Masukkan school_name ke dalam detailsJSON
+		detailsJSON, err := json.Marshal(dto.SchoolAdminDetailsResponseDTO{
+			SchoolName: schoolName,
+			Picture:    details.Picture,
+			FirstName:  details.FirstName,
+			LastName:   details.LastName,
+			Gender:     dto.Gender(details.Gender),
+			Phone:      details.Phone,
+		})
 		if err != nil {
-			return nil, entity.School{}, fmt.Errorf("error marshaling school admin details: %w", err)
+			return nil, fmt.Errorf("error marshaling school admin details: %w", err)
 		}
 
 		user.DetailsJSON = detailsJSON
 		users = append(users, user)
 	}
 
-	return users, school, nil
+	return users, nil
 }
 
 func (r *userRepository) FetchAllDrivers(offset int, limit int, sortField string, sortDirection string) ([]entity.User, entity.School, entity.Vehicle, error) {

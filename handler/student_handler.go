@@ -16,6 +16,7 @@ import (
 )
 
 type StudentHandlerInterface interface {
+	GetStudentCountByMonth(c *fiber.Ctx) error
 	GetAllStudentWithParents(c *fiber.Ctx) error
 	GetSpecStudentWithParents(c *fiber.Ctx) error
 	GetAvailableStudents(c *fiber.Ctx) error
@@ -32,6 +33,27 @@ func NewStudentHttpHandler(studentService services.StudentService) StudentHandle
 	return &studentHandler{
 		studentService: studentService,
 	}
+}
+
+func (handler *studentHandler) GetStudentCountByMonth(c *fiber.Ctx) error {
+	// Memanggil service untuk mendapatkan jumlah siswa per bulan
+	studentCount, err := handler.studentService.GetStudentCountByMonth()
+	if err != nil {
+		// Jika terjadi error, kembalikan respons error
+		return utils.InternalServerErrorResponse(c, "Gagal mengambil jumlah siswa per bulan", err)
+	}
+
+	// Urutan bulan dalam format singkatan
+	orderedMonths := []string{"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "okt", "nov", "dec"}
+
+	// Buat map baru dengan bulan terurut
+	orderedResponse := make(map[string]int)
+	for _, month := range orderedMonths {
+		orderedResponse[month] = studentCount[month]
+	}
+
+	// Mengembalikan response dalam format JSON
+	return c.Status(fiber.StatusOK).JSON(orderedResponse)
 }
 
 func (handler *studentHandler) GetAllStudentWithParents(c *fiber.Ctx) error {

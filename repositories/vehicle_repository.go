@@ -18,9 +18,11 @@ type VehicleRepositoryInterface interface {
 	CountVehiclesForPermittedSchool(schoolUUID string) (int, error)
 	FetchSpecVehicle(uuid string) (entity.Vehicle, entity.School, entity.DriverDetails, error)
 	FetchSpecVehicleForPermittedSchool(uuid string) (entity.Vehicle, entity.School, entity.DriverDetails, error)
+	FetchAvailableVehicle() ([]entity.Vehicle, error)
 
 	SaveVehicle(vehicle entity.Vehicle) error
-	SaveSchoolVehicleWithDriver(tx *sqlx.Tx, vehicle entity.Vehicle) error
+	SaveVehicleForPermittedSchool(vehicle entity.Vehicle) error
+	// SaveSchoolVehicleWithDriver(tx *sqlx.Tx, vehicle entity.Vehicle) error
 	UpdateVehicle(vehicle entity.Vehicle) error
 	DeleteVehicle(vehicle entity.Vehicle) error
 }
@@ -379,6 +381,51 @@ func (repository *VehicleRepository) FetchSpecVehicleForPermittedSchool(uuid str
 	return vehicle, school, driver, nil
 }
 
+func (repository *VehicleRepository) FetchAvailableVehicle() ([]entity.Vehicle, error) {
+	query := `
+		SELECT 
+			v.vehicle_uuid,
+			v.vehicle_name,
+			v.vehicle_number,
+			v.vehicle_color
+		FROM vehicles v
+		WHERE v.driver_uuid IS NULL AND v.deleted_at IS NULL
+	`
+
+	rows, err := repository.db.Query(query)
+	if err != nil {
+		log.Printf("Error executing query: %v", err)
+		return nil, err
+	}
+	defer rows.Close()
+
+	var vehicles []entity.Vehicle
+
+	// Scan data baris per baris
+	for rows.Next() {
+		var vehicle entity.Vehicle
+		err := rows.Scan(
+			&vehicle.UUID,
+			&vehicle.VehicleName,
+			&vehicle.VehicleNumber,
+			&vehicle.VehicleColor,
+		)
+		if err != nil {
+			log.Printf("Error scanning row: %v", err)
+			return nil, err
+		}
+		vehicles = append(vehicles, vehicle)
+	}
+
+	// Periksa apakah ada error dalam iterasi rows
+	if err := rows.Err(); err != nil {
+		log.Printf("Error iterating rows: %v", err)
+		return nil, err
+	}
+
+	return vehicles, nil
+}
+
 func (repository *VehicleRepository) SaveVehicle(vehicle entity.Vehicle) error {
 	query := `
 		INSERT INTO vehicles (vehicle_id, vehicle_uuid, school_uuid, vehicle_name, vehicle_number, vehicle_type, vehicle_color, vehicle_seats, vehicle_status, created_by)
@@ -393,7 +440,25 @@ func (repository *VehicleRepository) SaveVehicle(vehicle entity.Vehicle) error {
 	return nil
 }
 
-func (repository *VehicleRepository) SaveSchoolVehicleWithDriver(tx *sqlx.Tx, vehicle entity.Vehicle) error {
+// func (repository *VehicleRepository) SaveSchoolVehicleWithDriver(tx *sqlx.Tx, vehicle entity.Vehicle) error {
+//     log.Println("Inserting vehicle into database:", vehicle)
+
+//     query := `
+//         INSERT INTO vehicles (vehicle_id, vehicle_uuid, school_uuid, vehicle_name, vehicle_number, vehicle_type, vehicle_color, vehicle_seats, vehicle_status, created_by)
+//         VALUES (:vehicle_id, :vehicle_uuid, :school_uuid, :vehicle_name, :vehicle_number, :vehicle_type, :vehicle_color, :vehicle_seats, :vehicle_status, :created_by)
+//     `
+//     log.Printf("SQL query to insert vehicle: %s\n", query)
+
+//     _, err := repository.db.NamedExec(query, vehicle)
+//     if err != nil {
+//         log.Println("Error inserting vehicle:", err)
+//         return err
+//     }
+//     log.Println("Vehicle inserted successfully into the database")
+//     return nil
+// }
+
+func (repository *VehicleRepository) SaveVehicleForPermittedSchool(vehicle entity.Vehicle) error {
     log.Println("Inserting vehicle into database:", vehicle)
 
     query := `

@@ -12,6 +12,7 @@ import (
 	"shuttle/utils"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -27,6 +28,33 @@ func NewShuttleHandler(shuttleService services.ShuttleServiceInterface) *Shuttle
 	return &ShuttleHandler{
 		ShuttleService: shuttleService,
 	}
+}
+
+func (h *ShuttleHandler) GetShuttleSummary(c *fiber.Ctx) error {
+	// Mengambil jumlah shuttle hari ini
+	shuttleToday, err := h.ShuttleService.GetShuttleCountCurrentTime()
+	if err != nil {
+		return utils.InternalServerErrorResponse(c, "Gagal mengambil jumlah shuttle hari ini", err)
+	}
+
+	// Mengambil jumlah shuttle kemarin
+	shuttleYesterday, err := h.ShuttleService.GetShuttleCountByDate(time.Now().AddDate(0, 0, -1))
+	if err != nil {
+		return utils.InternalServerErrorResponse(c, "Gagal mengambil jumlah shuttle kemarin", err)
+	}
+
+	// Mendapatkan tanggal hari ini dan kemarin
+	shuttleDateToday := time.Now().Format("2006-01-02")
+	shuttleDateYesterday := time.Now().AddDate(0, 0, -1).Format("2006-01-02")
+
+	// Mengembalikan respons dengan format yang diminta
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"shuttle_count":        0,
+		"shuttle_today":        shuttleToday,
+		"shuttle_date_today":   shuttleDateToday,
+		"shuttle_yesterday":    shuttleYesterday,
+		"shuttle_date_yesterday": shuttleDateYesterday,
+	})
 }
 
 func (h *ShuttleHandler) GetShuttleTrackByParent(c *fiber.Ctx) error {

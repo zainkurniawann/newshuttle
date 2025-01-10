@@ -73,3 +73,17 @@ type SchoolStudentParentResponseDTO struct {
 	UpdatedBy        string `json:"updated_by,omitempty"`
 }
 
+type StudentGrowthDTO struct {
+	January   int `json:"jan"`
+	February  int `json:"feb"`
+	March     int `json:"mar"`
+	April     int `json:"apr"`
+	May       int `json:"may"`
+	June      int `json:"jun"`
+	July      int `json:"jul"`
+	August    int `json:"aug"`
+	September int `json:"sep"`
+	October   int `json:"okt"`
+	November  int `json:"nov"`
+	December  int `json:"dec"`
+}

@@ -13,6 +13,8 @@ import (
 )
 
 type ShuttleServiceInterface interface {
+	GetShuttleCountByDate(date time.Time) (int, error)
+	GetShuttleCountCurrentTime() (int, error) 
 	GetShuttleTrackByParent(parentUUID uuid.UUID) ([]dto.ShuttleResponse, error)
 	GetAllShuttleByParent(parentUUID uuid.UUID, page, limit int, sortField, sortDirection string) ([]dto.ShuttleAllResponse, int, error)
 	GetAllShuttleByDriver(driverUUID uuid.UUID) ([]dto.ShuttleAllResponse, error)
@@ -30,6 +32,33 @@ func NewShuttleService(shuttleRepository repositories.ShuttleRepositoryInterface
 		shuttleRepository: shuttleRepository,
 	}
 }
+
+func (service *ShuttleService) GetShuttleCountCurrentTime() (int, error) {
+	// Memanggil repository untuk menghitung shuttle berdasarkan waktu saat ini
+	count, err := service.shuttleRepository.CountShuttleCurrentTime()
+	if err != nil {
+		log.Printf("Gagal mengambil jumlah shuttle: %v", err)  // Log error
+		return 0, fmt.Errorf("gagal menghitung jumlah shuttle saat ini: %w", err)
+	}
+
+	return count, nil
+}
+
+
+func (service *ShuttleService) GetShuttleCountByDate(date time.Time) (int, error) {
+	// Format tanggal menjadi string dalam format YYYY-MM-DD
+	dateStr := date.Format("2006-01-02")
+
+	// Memanggil repository untuk menghitung jumlah shuttle berdasarkan tanggal
+	count, err := service.shuttleRepository.CountShuttleByDate(dateStr)
+	if err != nil {
+		log.Printf("Gagal mengambil jumlah shuttle untuk tanggal %s: %v", dateStr, err)
+		return 0, fmt.Errorf("gagal menghitung jumlah shuttle untuk tanggal %s: %w", dateStr, err)
+	}
+
+	return count, nil
+}
+
 
 func (s *ShuttleService) GetShuttleTrackByParent(parentUUID uuid.UUID) ([]dto.ShuttleResponse, error) {
 	log.Println("Fetching shuttle track from repository for parentUUID:", parentUUID)

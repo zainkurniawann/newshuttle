@@ -10,6 +10,7 @@ import (
 )
 
 type StudentRepositoryInterface interface {
+	CountStudentsGroupedByMonth() (map[string]int, error)
 	CountAllStudentsWithParents(schoolUUID string) (int, error)
 
 	FetchAllStudentsWithParents(offset int, limit int, sortField string, sortDirection string, schoolUUID string) ([]entity.Student, []entity.ParentDetails, error)
@@ -28,6 +29,71 @@ func NewStudentRepository(db *sqlx.DB) StudentRepositoryInterface {
 	return &StudentRepository{
 		db: db,
 	}
+}
+
+func (repo *StudentRepository) CountStudentsGroupedByMonth() (map[string]int, error) {
+	query := `
+		SELECT 
+			EXTRACT(MONTH FROM s.created_at) AS month,
+			COUNT(s.student_uuid) AS total
+		FROM students s
+		GROUP BY month
+		ORDER BY month;
+	`
+
+	rows, err := repo.db.Query(query)
+	if err != nil {
+		log.Printf("Gagal menjalankan query: %v", err)
+		return nil, fmt.Errorf("gagal menghitung jumlah siswa per bulan: %w", err)
+	}
+	defer rows.Close()
+
+	// Map untuk menyimpan jumlah siswa per bulan
+	studentCountByMonth := make(map[string]int)
+
+	// Iterasi hasil query
+	for rows.Next() {
+		var month int
+		var total int
+		if err := rows.Scan(&month, &total); err != nil {
+			log.Printf("Gagal membaca hasil query: %v", err)
+			return nil, err
+		}
+
+		// Menyusun nama bulan berdasarkan angka bulan
+		monthName := ""
+		switch month {
+		case 1:
+			monthName = "jan"
+		case 2:
+			monthName = "feb"
+		case 3:
+			monthName = "mar"
+		case 4:
+			monthName = "apr"
+		case 5:
+			monthName = "may"
+		case 6:
+			monthName = "jun"
+		case 7:
+			monthName = "jul"
+		case 8:
+			monthName = "aug"
+		case 9:
+			monthName = "sep"
+		case 10:
+			monthName = "okt"
+		case 11:
+			monthName = "nov"
+		case 12:
+			monthName = "dec"
+		}
+
+		// Menambahkan data ke map
+		studentCountByMonth[monthName] = total
+	}
+
+	return studentCountByMonth, nil
 }
 
 func (repo *StudentRepository) CountAllStudentsWithParents(schoolUUID string) (int, error) {

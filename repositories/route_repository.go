@@ -20,7 +20,7 @@ type RouteRepositoryInterface interface {
 	AddRouteAssignment(tx *sql.Tx, assignment entity.RouteAssignment) error
 	
 	UpdateRoute(tx *sql.Tx, route entity.Routes) error
-	UpdateRouteAssignment(tx *sql.Tx, assignment entity.RouteAssignment) error
+	UpdateOrAddRouteAssignment(tx *sql.Tx, assignment entity.RouteAssignment) error
 
 	DeleteRoute(tx *sql.Tx, routenameUUID, schoolUUID string) error
 	DeleteRouteAssignments(tx *sql.Tx, routenameUUID, schoolUUID string) error
@@ -400,32 +400,81 @@ func (r *routeRepository) UpdateRoute(tx *sql.Tx, route entity.Routes) error {
 	return nil
 }
 
-func (r *routeRepository) UpdateRouteAssignment(tx *sql.Tx, assignment entity.RouteAssignment) error {
-	query := `
-		UPDATE route_assignment
-		SET driver_uuid = $1,
-		    student_uuid = $2,
-		    student_order = $3,
-		    updated_at = $4,
-		    updated_by = $5
-		WHERE route_uuid = $6 AND driver_uuid = $7 AND student_uuid = $8
-	`
+func (r *routeRepository) UpdateOrAddRouteAssignment(tx *sql.Tx, assignment entity.RouteAssignment) error {
+	// Pertama, cek apakah sudah ada assignment untuk route_uuid, driver_uuid, dan student_uuid yang diberikan
+	routeUUID := assignment.RouteUUID.String()  // Konversi UUID ke string
+	driverUUID := assignment.DriverUUID.String()  // Konversi UUID ke string
+	studentUUID := assignment.StudentUUID.String()  // Konversi UUID ke string
 
-	_, err := tx.Exec(query,
-		assignment.DriverUUID,
-		assignment.StudentUUID,
-		assignment.StudentOrder,
-		time.Now(),
-		assignment.CreatedBy.String,
-		assignment.RouteUUID,
-		assignment.DriverUUID,
-		assignment.StudentUUID,
-	)
+	exists, err := r.IsRouteAssignmentExist(tx, routeUUID, driverUUID, studentUUID)
 	if err != nil {
-		return fmt.Errorf("failed to update route assignment: %w", err)
+		return fmt.Errorf("failed to check route assignment existence: %w", err)
 	}
+
+	// Jika assignment sudah ada, lakukan update
+	if exists {
+		query := `
+			UPDATE route_assignment
+			SET driver_uuid = $1,
+			    student_uuid = $2,
+			    student_order = $3,
+			    updated_at = $4,
+			    updated_by = $5
+			WHERE route_uuid = $6 AND driver_uuid = $7 AND student_uuid = $8
+		`
+
+		_, err := tx.Exec(query,
+			driverUUID,
+			studentUUID,
+			assignment.StudentOrder,
+			time.Now(),
+			assignment.CreatedBy.String,
+			routeUUID,
+			driverUUID,
+			studentUUID,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to update route assignment: %w", err)
+		}
+	} else {
+		// Jika assignment belum ada, lakukan insert
+		query := `
+			INSERT INTO route_assignment (route_uuid, driver_uuid, student_uuid, student_order, created_at, created_by)
+			VALUES ($1, $2, $3, $4, $5, $6)
+		`
+
+		_, err := tx.Exec(query,
+			routeUUID,
+			driverUUID,
+			studentUUID,
+			assignment.StudentOrder,
+			time.Now(),
+			assignment.CreatedBy.String,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to insert route assignment: %w", err)
+		}
+	}
+
 	return nil
 }
+
+// Fungsi pembantu untuk memeriksa apakah route assignment sudah ada
+func (r *routeRepository) IsRouteAssignmentExist(tx *sql.Tx, routeUUID, driverUUID, studentUUID string) (bool, error) {
+	var count int
+	query := `
+		SELECT COUNT(*) 
+		FROM route_assignment 
+		WHERE route_uuid = $1 AND driver_uuid = $2 AND student_uuid = $3 AND deleted_at IS NULL
+	`
+
+	err := tx.QueryRow(query, routeUUID, driverUUID, studentUUID).Scan(&count)
+	if err != nil {
+		return false, fmt.Errorf("error checking route assignment existence: %w", err)
+	}
+	return count > 0, nil
+}
+
 
 func (r *routeRepository) DeleteRoute(tx *sql.Tx, routenameUUID, schoolUUID string) error {
 	query := `DELETE FROM routes WHERE route_name_uuid = $1 AND school_uuid = $2`

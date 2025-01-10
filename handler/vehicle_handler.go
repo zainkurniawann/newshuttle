@@ -21,7 +21,9 @@ type VehicleHandlerInterface interface {
 	GetSpecVehicle(c *fiber.Ctx) error
 	GetSpecVehicleForPermittedSchool(c *fiber.Ctx) error
 	AddVehicle(c *fiber.Ctx) error
-	AddVehicleWithDriverSchool(c *fiber.Ctx) error
+	AddVehicleForPermittedSchool(c *fiber.Ctx) error
+	// AddVehicleWithDriverSchool(c *fiber.Ctx) error
+	GetAvailableVehicles(c *fiber.Ctx) error
 	UpdateVehicle(c *fiber.Ctx) error
 	DeleteVehicle(c *fiber.Ctx) error
 }
@@ -216,26 +218,90 @@ func (handler *vehicleHandler) AddVehicle(c *fiber.Ctx) error {
 	return utils.SuccessResponse(c, "Vehicle created successfully", nil)
 }
 
-func (handler *vehicleHandler) AddVehicleWithDriverSchool(c *fiber.Ctx) error {
-    log.Println("Start processing AddVehicleWithDriver request")
+// func (handler *vehicleHandler) AddVehicleWithDriverSchool(c *fiber.Ctx) error {
+//     log.Println("Start processing AddVehicleWithDriver request")
 
-    // Parsing body request ke DTO yang mencakup vehicle dan driver
-    vehicleDriverRequest := new(dto.VehicleDriverRequestDTO)
-    if err := c.BodyParser(vehicleDriverRequest); err != nil {
-        log.Println("Error parsing request body for VehicleDriverRequest:", err)
+//     // Parsing body request ke DTO yang mencakup vehicle dan driver
+//     vehicleDriverRequest := new(dto.VehicleDriverRequestDTO)
+//     if err := c.BodyParser(vehicleDriverRequest); err != nil {
+//         log.Println("Error parsing request body for VehicleDriverRequest:", err)
+//         return utils.BadRequestResponse(c, "Invalid request data", nil)
+//     }
+//     log.Println("Request body parsed successfully:", vehicleDriverRequest)
+
+//     // Parse driver details request
+//     driverDetailsRequest := new(dto.DriverDetailsRequestsDTO)
+//     if err := c.BodyParser(driverDetailsRequest); err != nil {
+//         log.Println("Error parsing request body for DriverDetailsRequests:", err)
+//         return utils.BadRequestResponse(c, "Invalid request data", nil)
+//     }
+
+//     // Validasi request
+//     if err := utils.ValidateStruct(c, vehicleDriverRequest); err != nil {
+//         log.Println("Validation error:", err)
+//         return utils.BadRequestResponse(c, strings.ToUpper(err.Error()[0:1])+err.Error()[1:], nil)
+//     }
+//     log.Println("Request body validation passed")
+
+//     // Ambil role dan user_id dari token
+//     role, ok := c.Locals("role_code").(string)
+//     if !ok || role == "" {
+//         log.Println("User role missing or invalid")
+//         return utils.UnauthorizedResponse(c, "Invalid user role", nil)
+//     }
+//     log.Println("User role retrieved from token:", role)
+
+//     userID, ok := c.Locals("userUUID").(string)
+//     if !ok || userID == "" {
+//         log.Println("User ID missing in token")
+//         return utils.UnauthorizedResponse(c, "Invalid user ID", nil)
+//     }
+//     log.Println("User ID retrieved from token:", userID)
+
+//     username, ok := c.Locals("user_name").(string)
+//     if !ok || username == "" {
+//         log.Println("Username missing in token")
+//         return utils.InternalServerErrorResponse(c, "Something went wrong, please try again later", nil)
+//     }
+//     log.Println("Username retrieved from token:", username)
+
+//     // Ambil schoolUUID dari context
+//     schoolUUID, ok := c.Locals("schoolUUID").(string)
+//     if !ok || schoolUUID == "" {
+//         log.Println("School UUID missing or invalid in context")
+//         return utils.UnauthorizedResponse(c, "School UUID is missing or invalid", nil)
+//     }
+//     log.Println("School UUID retrieved from context:", schoolUUID)
+
+//     // Panggil service untuk menambahkan vehicle dan driver
+//     log.Println("Calling AddVehicleWithDriver service")
+//     if err := handler.vehicleService.AddSchoolVehicleWithDriver(*vehicleDriverRequest, *driverDetailsRequest, schoolUUID, username); err != nil {
+//         if customErr, ok := err.(*errors.CustomError); ok {
+//             log.Println("Error from AddVehicleWithDriver service:", customErr.Message)
+//             return utils.ErrorResponse(c, customErr.StatusCode, customErr.Message, nil)
+//         }
+//         log.Println("Unexpected error from AddVehicleWithDriver service:", err)
+//         return utils.ErrorResponse(c, http.StatusInternalServerError, "Something went wrong, please try again later", nil)
+//     }
+//     log.Println("Vehicle and driver successfully added")
+
+//     // Berhasil
+//     return utils.SuccessResponse(c, "Vehicle and driver created successfully", nil)
+// }
+
+func (handler *vehicleHandler) AddVehicleForPermittedSchool(c *fiber.Ctx) error {
+    log.Println("Start processing AddVehicle request")
+
+    // Parsing body request ke DTO
+    vehicle := new(dto.VehicleRequestDTO)
+    if err := c.BodyParser(vehicle); err != nil {
+        log.Println("Error parsing request body:", err)
         return utils.BadRequestResponse(c, "Invalid request data", nil)
     }
-    log.Println("Request body parsed successfully:", vehicleDriverRequest)
-
-    // Parse driver details request
-    driverDetailsRequest := new(dto.DriverDetailsRequestsDTO)
-    if err := c.BodyParser(driverDetailsRequest); err != nil {
-        log.Println("Error parsing request body for DriverDetailsRequests:", err)
-        return utils.BadRequestResponse(c, "Invalid request data", nil)
-    }
+    log.Println("Request body parsed successfully:", vehicle)
 
     // Validasi request
-    if err := utils.ValidateStruct(c, vehicleDriverRequest); err != nil {
+    if err := utils.ValidateStruct(c, vehicle); err != nil {
         log.Println("Validation error:", err)
         return utils.BadRequestResponse(c, strings.ToUpper(err.Error()[0:1])+err.Error()[1:], nil)
     }
@@ -256,13 +322,6 @@ func (handler *vehicleHandler) AddVehicleWithDriverSchool(c *fiber.Ctx) error {
     }
     log.Println("User ID retrieved from token:", userID)
 
-    username, ok := c.Locals("user_name").(string)
-    if !ok || username == "" {
-        log.Println("Username missing in token")
-        return utils.InternalServerErrorResponse(c, "Something went wrong, please try again later", nil)
-    }
-    log.Println("Username retrieved from token:", username)
-
     // Ambil schoolUUID dari context
     schoolUUID, ok := c.Locals("schoolUUID").(string)
     if !ok || schoolUUID == "" {
@@ -271,43 +330,77 @@ func (handler *vehicleHandler) AddVehicleWithDriverSchool(c *fiber.Ctx) error {
     }
     log.Println("School UUID retrieved from context:", schoolUUID)
 
-    // Panggil service untuk menambahkan vehicle dan driver
-    log.Println("Calling AddVehicleWithDriver service")
-    if err := handler.vehicleService.AddSchoolVehicleWithDriver(*vehicleDriverRequest, *driverDetailsRequest, schoolUUID, username); err != nil {
+    // Panggil service untuk menambahkan vehicle
+    log.Println("Calling AddVehicle service")
+    if err := handler.vehicleService.AddVehicleForPermittedSchool(*vehicle, role, schoolUUID); err != nil {
         if customErr, ok := err.(*errors.CustomError); ok {
-            log.Println("Error from AddVehicleWithDriver service:", customErr.Message)
+            log.Println("Error from AddVehicle service:", customErr.Message)
             return utils.ErrorResponse(c, customErr.StatusCode, customErr.Message, nil)
         }
-        log.Println("Unexpected error from AddVehicleWithDriver service:", err)
+        log.Println("Unexpected error from AddVehicle service:", err)
         return utils.ErrorResponse(c, http.StatusInternalServerError, "Something went wrong, please try again later", nil)
     }
-    log.Println("Vehicle and driver successfully added")
+    log.Println("Vehicle successfully added")
 
     // Berhasil
-    return utils.SuccessResponse(c, "Vehicle and driver created successfully", nil)
+    return utils.SuccessResponse(c, "Vehicle created successfully", nil)
+}
+
+func (handler *vehicleHandler) GetAvailableVehicles(c *fiber.Ctx) error {
+	// Memanggil service untuk mendapatkan kendaraan yang tersedia
+	vehicles, err := handler.vehicleService.GetAvailableVehicles()
+	if err != nil {
+		return utils.InternalServerErrorResponse(c, "Gagal mengambil data kendaraan", err)
+	}
+
+	// Mengembalikan response dalam format JSON
+	return c.Status(fiber.StatusOK).JSON(fiber.Map{
+		"vehicles": vehicles,
+	})
 }
 
 func (handler *vehicleHandler) UpdateVehicle(c *fiber.Ctx) error {
-	id := c.Params("id")
-	username := c.Locals("user_name").(string)
+    log.Println("Start handling vehicle update request")
 
-	vehicle := new(dto.VehicleRequestDTO)
-	if err := c.BodyParser(vehicle); err != nil {
-		return utils.BadRequestResponse(c, "Invalid request data", nil)
-	}
+    // Retrieve ID from URL params
+    id := c.Params("id")
+    log.Println("Vehicle ID retrieved from params:", id)
 
-	if err := utils.ValidateStruct(c, vehicle); err != nil {
-		return utils.BadRequestResponse(c, strings.ToUpper(err.Error()[0:1])+err.Error()[1:], nil)
-	}
+    // Retrieve username from local context
+    username := c.Locals("user_name").(string)
+    log.Println("Username retrieved from context:", username)
 
-	if err := handler.vehicleService.UpdateVehicle(id, *vehicle, username); err != nil {
-		if customErr, ok := err.(*errors.CustomError); ok {
-			return utils.ErrorResponse(c, customErr.StatusCode, strings.ToUpper(string(customErr.Message[0]))+customErr.Message[1:], nil)
-		}
-		return utils.ErrorResponse(c, http.StatusInternalServerError, "Something went wrong, please try again later", nil)
-	}
+    // Parse request body
+    vehicle := new(dto.VehicleRequestDTO)
+    log.Println("Parsing request body")
+    if err := c.BodyParser(vehicle); err != nil {
+        log.Println("Error parsing request body:", err)
+        return utils.BadRequestResponse(c, "Invalid request data", nil)
+    }
+    log.Println("Request body parsed successfully:", vehicle)
 
-	return utils.SuccessResponse(c, "Vehicle updated successfully", nil)
+    // Validate parsed request
+    log.Println("Validating request body")
+    if err := utils.ValidateStruct(c, vehicle); err != nil {
+        log.Println("Validation error:", err)
+        return utils.BadRequestResponse(c, strings.ToUpper(err.Error()[0:1])+err.Error()[1:], nil)
+    }
+    log.Println("Request body validated successfully")
+
+    // Call service layer to update vehicle
+    log.Println("Calling service layer to update vehicle")
+    if err := handler.vehicleService.UpdateVehicle(id, *vehicle, username); err != nil {
+        log.Println("Error from service layer:", err)
+        if customErr, ok := err.(*errors.CustomError); ok {
+            log.Println("Custom error detected:", customErr)
+            return utils.ErrorResponse(c, customErr.StatusCode, strings.ToUpper(string(customErr.Message[0]))+customErr.Message[1:], nil)
+        }
+        log.Println("Unknown error detected")
+        return utils.ErrorResponse(c, http.StatusInternalServerError, "Something went wrong, please try again later", nil)
+    }
+
+    log.Println("Vehicle updated successfully")
+    return utils.SuccessResponse(c, "Vehicle updated successfully", nil)
 }
 
 func (handler *vehicleHandler) DeleteVehicle(c *fiber.Ctx) error {

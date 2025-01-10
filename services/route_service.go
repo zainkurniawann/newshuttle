@@ -241,7 +241,7 @@ func (service *routeService) UpdateRoute(route dto.RoutesRequestDTO, routenameUU
 				CreatedBy:     sql.NullString{String: username, Valid: true},
 			}
 
-			err := service.routeRepository.UpdateRouteAssignment(tx, routeAssignmentEntity)
+			err := service.routeRepository.UpdateOrAddRouteAssignment(tx, routeAssignmentEntity)
 			if err != nil {
 				tx.Rollback()
 				return fmt.Errorf("failed to update route assignment: %w", err)
