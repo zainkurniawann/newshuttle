@@ -1,0 +1,6 @@
+.env
+notes.txt
+.air.toml
+/tmp
+/assets/*
+service-account.json
