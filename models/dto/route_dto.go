@@ -12,7 +12,8 @@ type StudentDTO struct {
 	StudentFirstName 	string `json:"student_first_name"`
 	StudentLastName  	string `json:"student_last_name"`
 	StudentStatus	  	string `json:"student_status"`
-	StudentOrder 		string  `json:"student_order"`
+	StudentOrder 		int  	`json:"student_order"`
+	RouteAssignmentUUID string	`json:"route_assignment_uuid"`
 }
 
 type StudentReqDTO struct {
@@ -66,4 +67,15 @@ type RouteResponseByDriverDTO struct {
 	ShuttleStatus      sql.NullString `db:"shuttle_status" json:"shuttle_status"`
 	SchoolName         string         `json:"school_name,omitempty" db:"school_name"`
 	SchoolPoint        string         `json:"school_point,omitempty" db:"school_point"`
+}
+
+type UpdateRouteRequest struct {
+    DriverUUID       string       `json:"driver_uuid"`
+    RouteNameUUID    string       `json:"route_name_uuid"` // Akan diisi dari URL
+    RouteName        string       `json:"route_name"`
+    RouteDescription string       `json:"route_description"`
+    Added            []StudentDTO `json:"added"`
+    DeletedStudents  []StudentDTO `json:"deletedStudents"`
+    Students         []StudentDTO `json:"students"`
+    SchoolUUID       string       `json:"school_uuid"` // Akan diisi dari token
 }

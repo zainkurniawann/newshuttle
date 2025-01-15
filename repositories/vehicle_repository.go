@@ -19,6 +19,7 @@ type VehicleRepositoryInterface interface {
 	FetchSpecVehicle(uuid string) (entity.Vehicle, entity.School, entity.DriverDetails, error)
 	FetchSpecVehicleForPermittedSchool(uuid string) (entity.Vehicle, entity.School, entity.DriverDetails, error)
 	FetchAvailableVehicle() ([]entity.Vehicle, error)
+	FetchAvailableSchoolVehicle(schoolUUID string) ([]entity.Vehicle, error)
 
 	SaveVehicle(vehicle entity.Vehicle) error
 	SaveVehicleForPermittedSchool(vehicle entity.Vehicle) error
@@ -424,6 +425,51 @@ func (repository *VehicleRepository) FetchAvailableVehicle() ([]entity.Vehicle, 
 	}
 
 	return vehicles, nil
+}
+
+func (repository *VehicleRepository) FetchAvailableSchoolVehicle(schoolUUID string) ([]entity.Vehicle, error) {
+    query := `
+        SELECT 
+            v.vehicle_uuid,
+            v.vehicle_name,
+            v.vehicle_number,
+            v.vehicle_color
+        FROM vehicles v
+        WHERE v.driver_uuid IS NULL AND v.school_uuid = $1 AND v.deleted_at IS NULL
+    `
+
+    rows, err := repository.db.Query(query, schoolUUID) // Tambahkan schoolUUID sebagai argumen
+    if err != nil {
+        log.Printf("Error executing query: %v", err)
+        return nil, err
+    }
+    defer rows.Close()
+
+    var vehicles []entity.Vehicle
+
+    // Scan data baris per baris
+    for rows.Next() {
+        var vehicle entity.Vehicle
+        err := rows.Scan(
+            &vehicle.UUID,
+            &vehicle.VehicleName,
+            &vehicle.VehicleNumber,
+            &vehicle.VehicleColor,
+        )
+        if err != nil {
+            log.Printf("Error scanning row: %v", err)
+            return nil, err
+        }
+        vehicles = append(vehicles, vehicle)
+    }
+
+    // Periksa apakah ada error dalam iterasi rows
+    if err := rows.Err(); err != nil {
+        log.Printf("Error iterating rows: %v", err)
+        return nil, err
+    }
+
+    return vehicles, nil
 }
 
 func (repository *VehicleRepository) SaveVehicle(vehicle entity.Vehicle) error {

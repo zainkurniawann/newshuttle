@@ -6,6 +6,7 @@ import (
 	"shuttle/services"
 	"shuttle/utils"
 	"strconv"
+	"strings"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -16,7 +17,7 @@ type RouteHandlerInterface interface {
 	GetSpecRouteByAS(c *fiber.Ctx) error
 	GetAllRoutesByDriver(c *fiber.Ctx) error
 	AddRoute(c *fiber.Ctx) error
-	UpdateRoute(c *fiber.Ctx) error
+	UpdateRoute(c *fiber.Ctx) error 
 	DeleteRoute(c *fiber.Ctx) error
 }
 
@@ -130,69 +131,72 @@ func (handler *routeHandler) GetAllRoutesByDriver(c *fiber.Ctx) error {
 }
 
 func (handler *routeHandler) AddRoute(c *fiber.Ctx) error {
-	schoolUUID, ok := c.Locals("schoolUUID").(string)
-	if !ok {
-		return utils.InternalServerErrorResponse(c, "Token does not contain schoolUUID", nil)
-	}
-	username, ok := c.Locals("user_name").(string)
-	if !ok {
-		return utils.InternalServerErrorResponse(c, "Token does not contain username", nil)
-	}
+    // Ambil schoolUUID dari token
+    schoolUUID, ok := c.Locals("schoolUUID").(string)
+    if !ok || schoolUUID == "" {
+        return utils.InternalServerErrorResponse(c, "Token does not contain schoolUUID", nil)
+    }
 
-	route := new(dto.RoutesRequestDTO)
-	if err := c.BodyParser(route); err != nil {
-		return utils.BadRequestResponse(c, "Invalid request body", nil)
-	}
+    // Ambil username dari token
+    username, ok := c.Locals("user_name").(string)
+    if !ok || username == "" {
+        return utils.InternalServerErrorResponse(c, "Token does not contain username", nil)
+    }
 
-	if err := utils.ValidateStruct(c, route); err != nil {
-		return utils.BadRequestResponse(c, err.Error(), nil)
-	}
+    // Parse body request
+    route := new(dto.RoutesRequestDTO)
+    if err := c.BodyParser(route); err != nil {
+        return utils.BadRequestResponse(c, "Invalid request body", nil)
+    }
 
-	err := handler.routeService.AddRoute(*route, schoolUUID, username)
-	if err != nil {
-		// Tangani error spesifik untuk validasi duplikasi student
-		if err.Error() == "same student not permitted" {
+    // Validasi payload
+    if err := utils.ValidateStruct(c, route); err != nil {
+        return utils.BadRequestResponse(c, err.Error(), nil)
+    }
+
+    // Panggil service untuk menambahkan rute
+    err := handler.routeService.AddRoute(*route, schoolUUID, username)
+    if err != nil {
+        // Tangani error spesifik
+        switch {
+		case strings.Contains(err.Error(), "Maximum seats exceeded"):
+			return utils.BadRequestResponse(c, err.Error(), nil)
+		case err.Error() == "same student not permitted":
 			return utils.BadRequestResponse(c, "Same student not permitted", nil)
-		}
-
-		// Tangani error lainnya
-		switch err.Error() {
-		case "student not found":
+		case err.Error() == "student not found":
 			return utils.BadRequestResponse(c, "Student not found", nil)
-		case "driver not found":
+		case err.Error() == "driver not found":
 			return utils.BadRequestResponse(c, "Driver not found", nil)
-		case "driver already assigned to another route":
+		case err.Error() == "driver already assigned to another route":
 			return utils.BadRequestResponse(c, "Driver already assigned to another route", nil)
-		}
+		default:
+			return utils.InternalServerErrorResponse(c, "Failed to add route", err)
+	}	
+    }
 
-		// Jika error tidak dikenali, kembalikan respons 500
-		return utils.InternalServerErrorResponse(c, err.Error(), nil)
-	}
-
-	return utils.SuccessResponse(c, "Route added successfully", nil)
+    return utils.SuccessResponse(c, "Route added successfully", nil)
 }
 
-func (handler *routeHandler) UpdateRoute(c *fiber.Ctx) error {
-	routenameUUID := c.Params("id")
-	schoolUUID, ok := c.Locals("schoolUUID").(string)
-	if !ok {
-		return utils.InternalServerErrorResponse(c, "Token does not contain schoolUUID", nil)
-	}
-	username, ok := c.Locals("user_name").(string)
-	if !ok {
-		return utils.InternalServerErrorResponse(c, "Token does not contain username", nil)
-	}
-	route := new(dto.RoutesRequestDTO)
-	if err := c.BodyParser(route); err != nil {
-		return utils.BadRequestResponse(c, "Invalid request body", nil)
-	}
-	if err := utils.ValidateStruct(c, route); err != nil {
-		return utils.BadRequestResponse(c, err.Error(), nil)
-	}
-	if err := handler.routeService.UpdateRoute(*route, routenameUUID, schoolUUID, username); err != nil {
-		return utils.InternalServerErrorResponse(c, err.Error(), nil)
-	}
-	return utils.SuccessResponse(c, "Route updated successfully", nil)
+func (h *routeHandler) UpdateRoute(c *fiber.Ctx) error {
+    var requestDTO dto.UpdateRouteRequest
+
+    // Parsing body menjadi DTO
+    if err := c.BodyParser(&requestDTO); err != nil {
+        return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Invalid request body"})
+    }
+
+    // Mengambil parameter tambahan
+    routeNameUUID := c.Params("id")
+    schoolUUID, _ := c.Locals("schoolUUID").(string)
+    username, _ := c.Locals("user_name").(string)
+
+    // Memanggil service dengan DTO
+    err := h.routeService.UpdateRoute(requestDTO, routeNameUUID, schoolUUID, username)
+    if err != nil {
+        return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": err.Error()})
+    }
+
+    return c.JSON(fiber.Map{"message": "Route updated successfully"})
 }
 
 func (handler *routeHandler) DeleteRoute(c *fiber.Ctx) error {

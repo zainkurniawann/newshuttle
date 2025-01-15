@@ -14,6 +14,7 @@ import (
 
 type VehicleServiceInterface interface {
 	GetAvailableVehicles() ([]dto.VehicleResponseDTO, error)
+	GetAvailableSchoolVehicles(schoolUUID string) ([]dto.VehicleResponseDTO, error)
 	GetSpecVehicle(uuid string) (dto.VehicleResponseDTO, error)
 	GetSpecVehicleForPermittedSchool(id string) (dto.VehicleResponseDTO, error)
 	GetAllVehicles(page, limit int, sortField, sortDirection string) ([]dto.VehicleResponseDTO, int, error)
@@ -243,6 +244,29 @@ func (service *VehicleService) GetAvailableVehicles() ([]dto.VehicleResponseDTO,
 	}
 
 	return vehicleDTOs, nil
+}
+
+func (service *VehicleService) GetAvailableSchoolVehicles(schoolUUID string) ([]dto.VehicleResponseDTO, error) {
+    // Fetch available vehicles from repository
+    vehicles, err := service.vehicleRepository.FetchAvailableSchoolVehicle(schoolUUID)
+    if err != nil {
+        log.Printf("Error fetching available vehicles: %v", err)
+        return nil, fmt.Errorf("gagal mengambil data kendaraan yang tersedia: %w", err)
+    }
+
+    // Convert the vehicle data to DTO format
+    var vehicleDTOs []dto.VehicleResponseDTO
+    for _, vehicle := range vehicles {
+        vehicleDTO := dto.VehicleResponseDTO{
+            UUID:   vehicle.UUID.String(),
+            Name:   vehicle.VehicleName,
+            Number: vehicle.VehicleNumber,
+            Color:  vehicle.VehicleColor,
+        }
+        vehicleDTOs = append(vehicleDTOs, vehicleDTO)
+    }
+
+    return vehicleDTOs, nil
 }
 
 func (service *VehicleService) AddVehicle(req dto.VehicleRequestDTO) error {

@@ -24,6 +24,7 @@ type VehicleHandlerInterface interface {
 	AddVehicleForPermittedSchool(c *fiber.Ctx) error
 	// AddVehicleWithDriverSchool(c *fiber.Ctx) error
 	GetAvailableVehicles(c *fiber.Ctx) error
+	GetAvailableSchoolVehicles(c *fiber.Ctx) error
 	UpdateVehicle(c *fiber.Ctx) error
 	DeleteVehicle(c *fiber.Ctx) error
 }
@@ -357,6 +358,26 @@ func (handler *vehicleHandler) GetAvailableVehicles(c *fiber.Ctx) error {
 	return c.Status(fiber.StatusOK).JSON(fiber.Map{
 		"vehicles": vehicles,
 	})
+}
+
+func (handler *vehicleHandler) GetAvailableSchoolVehicles(c *fiber.Ctx) error {
+    schoolUUID, ok := c.Locals("schoolUUID").(string)
+    if !ok || schoolUUID == "" {
+        log.Println("School UUID missing or invalid in context")
+        return utils.UnauthorizedResponse(c, "School UUID is missing or invalid", nil)
+    }
+    log.Println("School UUID retrieved from context:", schoolUUID)
+
+    // Memanggil service untuk mendapatkan kendaraan yang tersedia
+    vehicles, err := handler.vehicleService.GetAvailableSchoolVehicles(schoolUUID)
+    if err != nil {
+        return utils.InternalServerErrorResponse(c, "Gagal mengambil data kendaraan", err)
+    }
+
+    // Mengembalikan response dalam format JSON
+    return c.Status(fiber.StatusOK).JSON(fiber.Map{
+        "vehicles": vehicles,
+    })
 }
 
 func (handler *vehicleHandler) UpdateVehicle(c *fiber.Ctx) error {

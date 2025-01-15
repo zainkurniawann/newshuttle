@@ -128,6 +128,7 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	protectedSchoolAdmin.Delete("/user/driver/delete/:id", userHandler.DeleteSchoolDriver)
 	
 	protectedSchoolAdmin.Get("/vehicle/all", vehicleHandler.GetAllVehiclesForPermittedSchool)
+	protectedSchoolAdmin.Get("/vehicle/free/all", vehicleHandler.GetAvailableSchoolVehicles)
 	protectedSchoolAdmin.Get("/vehicle/:id", vehicleHandler.GetSpecVehicleForPermittedSchool)
 	protectedSchoolAdmin.Post("/vehicle/add", vehicleHandler.AddVehicleForPermittedSchool)
 	protectedSchoolAdmin.Put("/vehicle/update/:id", vehicleHandler.UpdateVehicle)

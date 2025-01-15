@@ -3,10 +3,13 @@ package services
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"shuttle/models/dto"
 	"shuttle/models/entity"
 	"shuttle/repositories"
+	"strconv"
 	"time"
+
 	"github.com/google/uuid"
 )
 
@@ -14,12 +17,10 @@ type RouteServiceInterface interface {
 	GetAllRoutesByAS(page, limit int, sortField, sortDirection, schoolUUID string) ([]dto.RoutesResponseDTO, int, error)
 	GetSpecRouteByAS(routeNameUUID, driverUUID string) (dto.RoutesResponseDTO, error)
 	GetAllRoutesByDriver(driverUUID string) ([]dto.RouteResponseByDriverDTO, error)
-
 	AddRoute(route dto.RoutesRequestDTO, schoolUUID, username string) error
-	UpdateRoute(route dto.RoutesRequestDTO, routenameUUID, schoolUUID, username string) error 
-	DeleteRoute(routenameUUID, schoolUUID, username string) error
-
+	UpdateRoute(request dto.UpdateRouteRequest, routeNameUUID, schoolUUID, username string) error
 	GetDriverUUIDByRouteName(routeNameUUID string) (string, error)
+	DeleteRoute(routenameUUID, schoolUUID, username string) error
 }
 
 type routeService struct {
@@ -83,12 +84,18 @@ func (s *routeService) GetSpecRouteByAS(routeNameUUID, driverUUID string) (dto.R
 	}
 
 	for _, route := range routes {
+		studentOrder, err := strconv.Atoi(route.StudentOrder)
+    if err != nil {
+        fmt.Printf("Error parsing StudentOrder for %s: %v\n", route.StudentUUID, err)
+        continue // Skip data yang bermasalah
+    }
 		student := dto.StudentDTO{
+			RouteAssignmentUUID: route.RouteAssignmentUUID.String(),
 			StudentUUID:      route.StudentUUID.String(),
 			StudentFirstName: defaultString(route.StudentFirstName),
 			StudentLastName:  defaultString(route.StudentLastName),
 			StudentStatus: route.StudentStatus,
-			StudentOrder:     route.StudentOrder,
+			StudentOrder:     studentOrder,
 		}
 		driverInfo.Students = append(driverInfo.Students, student)
 	}
@@ -113,11 +120,15 @@ func (service *routeService) GetAllRoutesByDriver(driverUUID string) ([]dto.Rout
 }
 
 func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, username string) error {
+	log.Println("[AddRoute] Mulai menambahkan rute baru.")
 
+	// Validasi duplicate student
 	if err := ValidateDuplicateStudents(route.RouteAssignment); err != nil {
+		log.Printf("[AddRoute] Validasi duplicate students gagal: %v\n", err)
 		return err
 	}
 
+	// Buat entitas route
 	routeEntity := entity.Routes{
 		RouteID:          time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
 		RouteNameUUID:    uuid.New(),
@@ -127,14 +138,21 @@ func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, us
 		CreatedAt:        sql.NullTime{Time: time.Now(), Valid: true},
 		CreatedBy:        sql.NullString{String: username, Valid: true},
 	}
+	log.Printf("[AddRoute] Route entity dibuat: %+v\n", routeEntity)
 
+	// Mulai transaksi database
 	tx, err := service.routeRepository.BeginTransaction()
 	if err != nil {
+		log.Printf("[AddRoute] Gagal memulai transaksi: %v\n", err)
 		return fmt.Errorf("failed to start transaction: %w", err)
 	}
+	log.Println("[AddRoute] Transaksi database dimulai.")
+
+	// Pastikan transaksi dibatalkan jika ada panic
 	defer func() {
 		if r := recover(); r != nil {
 			tx.Rollback()
+			log.Println("[AddRoute] Transaksi dibatalkan karena panic.")
 			panic(r)
 		}
 	}()
@@ -142,14 +160,17 @@ func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, us
 	// Insert route ke database
 	routeNameUUID, err := service.routeRepository.AddRoutes(tx, routeEntity)
 	if err != nil {
+		log.Printf("[AddRoute] Gagal menambahkan rute: %v\n", err)
 		tx.Rollback()
 		return fmt.Errorf("failed to add route: %w", err)
 	}
+	log.Printf("[AddRoute] Rute berhasil ditambahkan dengan routeNameUUID: %s\n", routeNameUUID)
 
 	parsedRouteUUID := uuid.MustParse(routeNameUUID)
 
-	// Insert route assignment
+	// Proses penugasan driver dan siswa
 	for _, assignment := range route.RouteAssignment {
+		log.Printf("[AddRoute] Memproses assignment untuk driver: %s\n", assignment.DriverUUID.String())
 		isDriverAssigned, err := service.routeRepository.IsDriverAssigned(tx, assignment.DriverUUID.String())
 		if err != nil {
 			tx.Rollback()
@@ -160,6 +181,24 @@ func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, us
 			return fmt.Errorf("driver already assigned to another route")
 		}
 
+		// Validasi kapasitas kursi kendaraan
+		vehicleSeats, err := service.routeRepository.GetVehicleSeatsByDriver(tx, assignment.DriverUUID.String())
+		if err != nil {
+			log.Printf("[AddRoute] Gagal mendapatkan kapasitas kursi kendaraan: %v\n", err)
+			tx.Rollback()
+			return fmt.Errorf("error fetching vehicle seats: %w", err)
+		}
+		log.Printf("[AddRoute] Kapasitas kursi kendaraan untuk driver %s: %d\n", assignment.DriverUUID.String(), vehicleSeats)
+
+		assignedStudentsCount, err := service.routeRepository.CountAssignedStudentsByDriver(tx, assignment.DriverUUID.String())
+		if err != nil {
+			log.Printf("[AddRoute] Gagal menghitung jumlah siswa yang diassign ke driver: %v\n", err)
+			tx.Rollback()
+			return fmt.Errorf("error fetching assigned students count: %w", err)
+		}
+		log.Printf("[AddRoute] Jumlah siswa yang sudah diassign untuk driver %s: %d\n", assignment.DriverUUID.String(), assignedStudentsCount)
+
+		// Validasi kapasitas kursi
 		for _, student := range assignment.Students {
 			isStudentAssigned, err := service.routeRepository.IsStudentAssigned(tx, student.StudentUUID.String())
 			if err != nil {
@@ -170,90 +209,123 @@ func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, us
 				tx.Rollback()
 				return fmt.Errorf("student already assigned to another route")
 			}
+			if assignedStudentsCount+1 > vehicleSeats {
+				log.Printf("[AddRoute] Kapasitas kursi melebihi batas: %d/%d\n", assignedStudentsCount, vehicleSeats)
+				tx.Rollback()
+				return fmt.Errorf("Maximum seats exceeded, Capacity is %d", vehicleSeats)
+			}						
 
 			if student.StudentOrder == "" || student.StudentOrder == "0" {
+				log.Println("[AddRoute] Student order kosong atau nol.")
 				tx.Rollback()
 				return fmt.Errorf("student order cannot be empty or zero")
 			}
 
 			routeAssignmentEntity := entity.RouteAssignment{
-				RouteID:       time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
-				RouteUUID:     parsedRouteUUID,
-				DriverUUID:    assignment.DriverUUID,
-				StudentUUID:   student.StudentUUID,
-				StudentOrder:  student.StudentOrder,
-				SchoolUUID:    uuid.MustParse(schoolUUID),
-				RouteNameUUID: routeEntity.RouteNameUUID.String(),
-				CreatedAt:     sql.NullTime{Time: time.Now(), Valid: true},
-				CreatedBy:     sql.NullString{String: username, Valid: true},
+				RouteID:       			time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
+				RouteAssignmentUUID:    uuid.New(),
+				DriverUUID:    			assignment.DriverUUID,
+				StudentUUID:   			student.StudentUUID,
+				StudentOrder:  			student.StudentOrder,
+				SchoolUUID:    			uuid.MustParse(schoolUUID),
+				RouteNameUUID: 			parsedRouteUUID.String(),
+				CreatedAt:     			sql.NullTime{Time: time.Now(), Valid: true},
+				CreatedBy:     			sql.NullString{String: username, Valid: true},
 			}
+			log.Printf("[AddRoute] Menambahkan route assignment: %+v\n", routeAssignmentEntity)
 
 			if err := service.routeRepository.AddRouteAssignment(tx, routeAssignmentEntity); err != nil {
+				log.Printf("[AddRoute] Gagal menambahkan route assignment: %v\n", err)
 				tx.Rollback()
 				return fmt.Errorf("failed to add route assignment: %w", err)
 			}
+
+			// Update jumlah siswa yang diassign
+			assignedStudentsCount++
+			log.Printf("[AddRoute] Jumlah siswa yang diassign diperbarui: %d\n", assignedStudentsCount)
 		}
 	}
 
+	// Commit transaksi
 	if err := tx.Commit(); err != nil {
+		log.Printf("[AddRoute] Gagal commit transaksi: %v\n", err)
 		return fmt.Errorf("failed to commit transaction: %w", err)
 	}
+	log.Println("[AddRoute] Transaksi berhasil di-commit.")
 
+	log.Println("[AddRoute] Rute berhasil ditambahkan.")
 	return nil
 }
 
-func (service *routeService) UpdateRoute(route dto.RoutesRequestDTO, routenameUUID, schoolUUID, username string) error {
-	routeEntity := entity.Routes{
-		RouteNameUUID:    uuid.MustParse(routenameUUID),
-		SchoolUUID:       uuid.MustParse(schoolUUID),
-		RouteName:        route.RouteName,
-		RouteDescription: route.RouteDescription,
-		UpdatedAt:        sql.NullTime{Time: time.Now(), Valid: true},
-		UpdatedBy:        sql.NullString{String: username, Valid: true},
-	}
+func (s *routeService) UpdateRoute(requestDTO dto.UpdateRouteRequest, routeNameUUID, schoolUUID, username string) error {
+    // Validasi input
+     // Validasi input
+	 if routeNameUUID == "" || requestDTO.DriverUUID == "" {
+        return fmt.Errorf("RouteNameUUID dan DriverUUID tidak boleh kosong")
+    }
 
-	tx, err := service.routeRepository.BeginTransaction()
-	if err != nil {
-		return fmt.Errorf("failed to start transaction: %w", err)
-	}
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
-	}()
+    // Pastikan UUID valid
+    parsedRouteUUID := uuid.MustParse(routeNameUUID)
+    parsedSchoolUUID := uuid.MustParse(schoolUUID) // Pastikan SchoolUUID juga diparse dengan benar
 
-	err = service.routeRepository.UpdateRoute(tx, routeEntity)
-	if err != nil {
-		tx.Rollback()
-		return fmt.Errorf("failed to update route: %w", err)
-	}
+    // Update data route
+    routeEntity := entity.Routes{
+        RouteNameUUID:    parsedRouteUUID, // Menambahkan RouteNameUUID
+        SchoolUUID:       parsedSchoolUUID, // Menambahkan SchoolUUID
+        RouteName:        requestDTO.RouteName,
+        RouteDescription: requestDTO.RouteDescription,
+        UpdatedAt:        sql.NullTime{Time: time.Now(), Valid: true},
+        UpdatedBy:        sql.NullString{String: username, Valid: true},
+    }
+    
+    if err := s.routeRepository.UpdateRouteDetails(&routeEntity); err != nil {
+        return fmt.Errorf("Gagal memperbarui data route: %w", err)
+    }
 
-	for _, assignment := range route.RouteAssignment {
-		for _, student := range assignment.Students {
-			routeAssignmentEntity := entity.RouteAssignment{
-				RouteUUID:     uuid.MustParse(routenameUUID),
-				DriverUUID:    assignment.DriverUUID,
-				StudentUUID:   student.StudentUUID,
-				StudentOrder:  student.StudentOrder,
-				SchoolUUID:    uuid.MustParse(schoolUUID),
-				CreatedAt:     sql.NullTime{Time: time.Now(), Valid: true},
-				CreatedBy:     sql.NullString{String: username, Valid: true},
-			}
-
-			err := service.routeRepository.UpdateOrAddRouteAssignment(tx, routeAssignmentEntity)
+    // Menambahkan siswa baru
+    for _, student := range requestDTO.Added {
+        // Validasi StudentOrder
+        if student.StudentOrder <= 0 {
+            log.Printf("Invalid StudentOrder for student %s. Using default value 1.", student.StudentUUID)
+            student.StudentOrder = 1 // Gunakan nilai default
+        }
+		studentUUID, err := uuid.Parse(student.StudentUUID)
+        if err != nil {
+            return fmt.Errorf("StudentUUID tidak valid: %w", err)
+        }
+		driverUUID, err := uuid.Parse(requestDTO.DriverUUID)
+        if err != nil {
+            return fmt.Errorf("StudentUUID tidak valid: %w", err)
+        }
+		studentOrder := strconv.Itoa(student.StudentOrder)
 			if err != nil {
-				tx.Rollback()
-				return fmt.Errorf("failed to update route assignment: %w", err)
+				return fmt.Errorf("schoolUUID tidak valid: %w", err)
 			}
-		}
-	}
 
-	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("failed to commit transaction: %w", err)
-	}
+        assignmentEntity := entity.RouteAssignment{
+			RouteID:       			time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
+			RouteAssignmentUUID:    uuid.New(),
+			DriverUUID:    			driverUUID,
+			StudentUUID:   			studentUUID,
+			StudentOrder:  			studentOrder,
+			SchoolUUID:    			uuid.MustParse(schoolUUID),
+			RouteNameUUID: 			parsedRouteUUID.String(),
+			CreatedAt:     			sql.NullTime{Time: time.Now(), Valid: true},
+			CreatedBy:     			sql.NullString{String: username, Valid: true},
+        }
+        if err := s.routeRepository.AddStudentToRoute(&assignmentEntity); err != nil {
+            return fmt.Errorf("Gagal menambahkan siswa ke route: %w", err)
+        }
+    }
 
-	return nil
+    // Menghapus siswa
+    for _, student := range requestDTO.DeletedStudents {
+        if err := s.routeRepository.DeleteStudentFromRoute(routeNameUUID, student.StudentUUID, schoolUUID); err != nil {
+            return fmt.Errorf("Gagal menghapus siswa dari route: %w", err)
+        }
+    }
+
+    return nil
 }
 
 func (service *routeService) DeleteRoute(routenameUUID, schoolUUID, username string) error {
