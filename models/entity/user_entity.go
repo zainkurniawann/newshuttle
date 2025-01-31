@@ -31,6 +31,7 @@ type User struct {
 	Status      string          `db:"user_status"`
 	LastActive  sql.NullTime    `db:"user_last_active"`
 	DetailsJSON json.RawMessage `db:"user_details"`
+	RegisterStatus string		`db:"user_register_status"`
 	CreatedAt   sql.NullTime    `db:"created_at"`
 	CreatedBy   sql.NullString  `db:"created_by"`
 	UpdatedAt   sql.NullTime    `db:"updated_at"`

@@ -7,7 +7,9 @@ import (
 	"shuttle/models/dto"
 	"shuttle/models/entity"
 	"shuttle/repositories"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -15,12 +17,17 @@ import (
 
 type RouteServiceInterface interface {
 	GetAllRoutesByAS(page, limit int, sortField, sortDirection, schoolUUID string) ([]dto.RoutesResponseDTO, int, error)
+	GetAllRouteAssignments(page, limit int, sortField, sortDirection string) ([]dto.RoutesResponseDTO, int, error)
 	GetSpecRouteByAS(routeNameUUID, driverUUID string) (dto.RoutesResponseDTO, error)
 	GetAllRoutesByDriver(driverUUID string) ([]dto.RouteResponseByDriverDTO, error)
 	AddRoute(route dto.RoutesRequestDTO, schoolUUID, username string) error
 	UpdateRoute(request dto.UpdateRouteRequest, routeNameUUID, schoolUUID, username string) error
+	UpdateStudentOrderByDriver(studentUUID string, newOrder int) error
+	GetMaxStudentOrder(routeNameUUID, schoolUUID string) (int, error)
 	GetDriverUUIDByRouteName(routeNameUUID string) (string, error)
 	DeleteRoute(routenameUUID, schoolUUID, username string) error
+
+	GetTotalDistance(driverStart [2]float64, students [][2]float64, school [2]float64) float64
 }
 
 type routeService struct {
@@ -32,6 +39,11 @@ func NewRouteService(routeRepository repositories.RouteRepositoryInterface) Rout
 		routeRepository: routeRepository,
 	}
 }
+
+func (s *routeService) GetTotalDistance(driverStart [2]float64, students [][2]float64, school [2]float64) float64 {
+	return s.routeRepository.CalculateTotalDistance(driverStart, students, school)
+}
+
 
 func (service *routeService) GetAllRoutesByAS(page, limit int, sortField, sortDirection, schoolUUID string) ([]dto.RoutesResponseDTO, int, error) {
 	offset := (page - 1) * limit
@@ -50,6 +62,44 @@ func (service *routeService) GetAllRoutesByAS(page, limit int, sortField, sortDi
 	return routes, totalItems, nil
 }
 
+func (s *routeService) GetAllRouteAssignments(page, limit int, sortField, sortDirection string) ([]dto.RoutesResponseDTO, int, error) {
+    log.Println("Starting GetAllRouteAssignments service")
+
+    // Ambil data dari repository
+    log.Printf("Fetching data from repository with page: %d, limit: %d\n", page, limit)
+    routes, totalItems, err := s.routeRepository.FetchAllRouteAssignments(page, limit)
+    if err != nil {
+        log.Printf("Failed to fetch data from repository: %v\n", err)
+        return nil, 0, err
+    }
+    log.Printf("Fetched %d items. Total items available: %d\n", len(routes), totalItems)
+
+    // Terapkan logika pengurutan
+    log.Printf("Applying sorting on field: %s with direction: %s\n", sortField, sortDirection)
+    sort.Slice(routes, func(i, j int) bool {
+        switch strings.ToLower(sortField) {
+        case "route_name":
+            if strings.ToLower(sortDirection) == "desc" {
+                return routes[i].RouteName > routes[j].RouteName
+            }
+            return routes[i].RouteName < routes[j].RouteName
+        case "driver_first_name":
+            if strings.ToLower(sortDirection) == "desc" {
+                return routes[i].RouteAssignment[0].DriverFirstName > routes[j].RouteAssignment[0].DriverFirstName
+            }
+            return routes[i].RouteAssignment[0].DriverFirstName < routes[j].RouteAssignment[0].DriverFirstName
+        default:
+            // Default sorting berdasarkan RouteNameUUID
+            if strings.ToLower(sortDirection) == "desc" {
+                return routes[i].RouteNameUUID > routes[j].RouteNameUUID
+            }
+            return routes[i].RouteNameUUID < routes[j].RouteNameUUID
+        }
+    })
+    log.Println("Sorting applied successfully")
+
+    return routes, totalItems, nil
+}
 
 func (s *routeService) GetSpecRouteByAS(routeNameUUID, driverUUID string) (dto.RoutesResponseDTO, error) {
 	if driverUUID == "" {
@@ -112,10 +162,13 @@ func defaultString(str string) string {
 }
 
 func (service *routeService) GetAllRoutesByDriver(driverUUID string) ([]dto.RouteResponseByDriverDTO, error) {
+	log.Println("Getting all routes for driver:", driverUUID)
 	routes, err := service.routeRepository.FetchAllRoutesByDriver(driverUUID)
 	if err != nil {
+		log.Println("Error in routeRepository:", err)
 		return nil, err
 	}
+	log.Println("Routes retrieved from repository:", len(routes))
 	return routes, nil
 }
 
@@ -259,60 +312,63 @@ func (service *routeService) AddRoute(route dto.RoutesRequestDTO, schoolUUID, us
 
 func (s *routeService) UpdateRoute(requestDTO dto.UpdateRouteRequest, routeNameUUID, schoolUUID, username string) error {
     // Validasi input
-     // Validasi input
-	 if routeNameUUID == "" || requestDTO.DriverUUID == "" {
+    if routeNameUUID == "" || requestDTO.DriverUUID == "" {
         return fmt.Errorf("RouteNameUUID dan DriverUUID tidak boleh kosong")
     }
 
     // Pastikan UUID valid
     parsedRouteUUID := uuid.MustParse(routeNameUUID)
-    parsedSchoolUUID := uuid.MustParse(schoolUUID) // Pastikan SchoolUUID juga diparse dengan benar
+    parsedSchoolUUID := uuid.MustParse(schoolUUID)
 
     // Update data route
     routeEntity := entity.Routes{
-        RouteNameUUID:    parsedRouteUUID, // Menambahkan RouteNameUUID
-        SchoolUUID:       parsedSchoolUUID, // Menambahkan SchoolUUID
+        RouteNameUUID:    parsedRouteUUID,
+        SchoolUUID:       parsedSchoolUUID,
         RouteName:        requestDTO.RouteName,
         RouteDescription: requestDTO.RouteDescription,
         UpdatedAt:        sql.NullTime{Time: time.Now(), Valid: true},
         UpdatedBy:        sql.NullString{String: username, Valid: true},
     }
-    
+
     if err := s.routeRepository.UpdateRouteDetails(&routeEntity); err != nil {
         return fmt.Errorf("Gagal memperbarui data route: %w", err)
     }
 
+    // Mendapatkan StudentOrder terbesar
+    maxStudentOrder, err := s.GetMaxStudentOrder(routeNameUUID, schoolUUID)
+    if err != nil {
+        return fmt.Errorf("Gagal mendapatkan StudentOrder terbesar: %w", err)
+    }
+
     // Menambahkan siswa baru
     for _, student := range requestDTO.Added {
-        // Validasi StudentOrder
         if student.StudentOrder <= 0 {
-            log.Printf("Invalid StudentOrder for student %s. Using default value 1.", student.StudentUUID)
-            student.StudentOrder = 1 // Gunakan nilai default
+            student.StudentOrder = maxStudentOrder + 1
+            maxStudentOrder++
         }
-		studentUUID, err := uuid.Parse(student.StudentUUID)
+
+        studentUUID, err := uuid.Parse(student.StudentUUID)
         if err != nil {
             return fmt.Errorf("StudentUUID tidak valid: %w", err)
         }
-		driverUUID, err := uuid.Parse(requestDTO.DriverUUID)
+
+        driverUUID, err := uuid.Parse(requestDTO.DriverUUID)
         if err != nil {
-            return fmt.Errorf("StudentUUID tidak valid: %w", err)
+            return fmt.Errorf("DriverUUID tidak valid: %w", err)
         }
-		studentOrder := strconv.Itoa(student.StudentOrder)
-			if err != nil {
-				return fmt.Errorf("schoolUUID tidak valid: %w", err)
-			}
 
         assignmentEntity := entity.RouteAssignment{
-			RouteID:       			time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
-			RouteAssignmentUUID:    uuid.New(),
-			DriverUUID:    			driverUUID,
-			StudentUUID:   			studentUUID,
-			StudentOrder:  			studentOrder,
-			SchoolUUID:    			uuid.MustParse(schoolUUID),
-			RouteNameUUID: 			parsedRouteUUID.String(),
-			CreatedAt:     			sql.NullTime{Time: time.Now(), Valid: true},
-			CreatedBy:     			sql.NullString{String: username, Valid: true},
+            RouteID:              time.Now().UnixMilli()*1e6 + int64(uuid.New().ID()%1e6),
+            RouteAssignmentUUID:  uuid.New(),
+            DriverUUID:           driverUUID,
+            StudentUUID:          studentUUID,
+            StudentOrder:         strconv.Itoa(student.StudentOrder),
+            SchoolUUID:           parsedSchoolUUID,
+            RouteNameUUID:        parsedRouteUUID.String(),
+            CreatedAt:            sql.NullTime{Time: time.Now(), Valid: true},
+            CreatedBy:            sql.NullString{String: username, Valid: true},
         }
+
         if err := s.routeRepository.AddStudentToRoute(&assignmentEntity); err != nil {
             return fmt.Errorf("Gagal menambahkan siswa ke route: %w", err)
         }
@@ -325,7 +381,39 @@ func (s *routeService) UpdateRoute(requestDTO dto.UpdateRouteRequest, routeNameU
         }
     }
 
+    // Mengupdate urutan siswa berdasarkan drag-and-drop
+    for _, student := range requestDTO.Students {
+		log.Printf("Processing update for student %s with StudentOrder %d\n", student.StudentUUID, student.StudentOrder)
+	
+		assignmentEntity := entity.RouteAssignment{
+			RouteNameUUID: parsedRouteUUID.String(),  // Gunakan RouteNameUUID
+			StudentOrder:  strconv.Itoa(student.StudentOrder),      // Pastikan ini adalah nilai yang benar
+			UpdatedAt:     sql.NullTime{Time: time.Now(), Valid: true},
+			UpdatedBy:     sql.NullString{String: username, Valid: true},
+		}
+	
+		log.Printf("Assignment entity created: %+v\n", assignmentEntity)
+	
+		// Update student order berdasarkan StudentUUID
+		if err := s.routeRepository.UpdateStudentOrder(routeNameUUID, &assignmentEntity, student.StudentUUID); err != nil {
+			log.Printf("Error updating student order for student with StudentUUID %s: %v\n", student.StudentUUID, err)
+			return fmt.Errorf("Gagal memperbarui urutan siswa: %w", err)
+		}
+	
+		log.Printf("Successfully updated student order for student with StudentUUID %s\n", student.StudentUUID)
+	}
+			
+
     return nil
+}
+
+func (service *routeService) UpdateStudentOrderByDriver(studentUUID string, newOrder int) error {
+	err := service.routeRepository.UpdateStudentOrderByDriver(studentUUID, newOrder)
+	if err != nil {
+		log.Println("Error in routeRepository:", err)
+		return err
+	}
+	return nil
 }
 
 func (service *routeService) DeleteRoute(routenameUUID, schoolUUID, username string) error {
@@ -391,4 +479,13 @@ func ValidateDuplicateStudents(routeAssignments []dto.RouteAssignmentRequestDTO)
 	}
 
 	return nil
+}
+
+func (s *routeService) GetMaxStudentOrder(routeNameUUID, schoolUUID string) (int, error) {
+    // Panggil repository untuk mendapatkan nilai StudentOrder terbesar
+    maxOrder, err := s.routeRepository.GetMaxStudentOrder(routeNameUUID, schoolUUID)
+    if err != nil {
+        return 0, fmt.Errorf("Gagal mendapatkan StudentOrder terbesar: %w", err)
+    }
+    return maxOrder, nil
 }

@@ -21,6 +21,7 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	routeRepository := repositories.NewRouteRepository(db)
 	childernRepository := repositories.NewChildernRepository(db)
 	shuttleRepository := repositories.NewShuttleRepository(db)
+	// registerRepository := repositories.NewRegisterRepository(db)
 	
 	userService := services.NewUserService(userRepository)
 	authService := services.NewAuthService(authRepository, userRepository)
@@ -30,6 +31,7 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	routeService := services.NewRouteService(routeRepository)
 	childernService := services.NewChildernService(childernRepository)
 	shuttleService := services.NewShuttleService(shuttleRepository)
+	// registerService := services.NewRegisterService(registerRepository)
 	
 	authHandler := handler.NewAuthHttpHandler(authService)
 	userHandler := handler.NewUserHttpHandler(userService, schoolService, vehicleService)
@@ -39,8 +41,13 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	routeHandler := handler.NewRouteHttpHandler(routeService)
 	childernHandler := handler.NewChildernHandler(childernService)
 	shuttleHandler := handler.NewShuttleHandler(shuttleService)
+	// registerHandler := handler.NewRegisterHttpHandler(registerService, schoolService, vehicleService)
 
 	wsService := utils.NewWebSocketService(userRepository, authRepository)
+
+	////////////////////////////////A😂P😂A😂L😂A😂H//////////////////////////////////
+
+	// r.Post("register", registerHandler.AddUserRegister)
 	
 	////////////////////////////////////// PUBLIC //////////////////////////////////////
 
@@ -135,7 +142,7 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	protectedSchoolAdmin.Delete("/vehicle/delete/:id", vehicleHandler.DeleteVehicle)
 
 	// ROUTE FOR SCHOOL ADMIN
-	protectedSchoolAdmin.Get("/route/all", routeHandler.GetAllRoutesByAS)
+	protectedSchoolAdmin.Get("/route/all", routeHandler.GetAllRouteAssignments)
 	protectedSchoolAdmin.Get("/route/:id", routeHandler.GetSpecRouteByAS)
 	protectedSchoolAdmin.Post("/route/add", routeHandler.AddRoute)
 	protectedSchoolAdmin.Put("/route/update/:id", routeHandler.UpdateRoute)
@@ -155,5 +162,7 @@ func Route(r *fiber.App, db *sqlx.DB) {
 	protectedDriver.Get("/shuttle/all", shuttleHandler.GetAllShuttleByDriver)
 	protectedDriver.Post("/shuttle/add", shuttleHandler.AddShuttle)
 	protectedDriver.Get("/shuttle/:id", shuttleHandler.GetSpecShuttle)
+	protectedDriver.Get("/distance", routeHandler.GetDriverDistance)
 	protectedDriver.Put("/shuttle/update/:id", shuttleHandler.EditShuttle) 
+	protectedDriver.Put("/shuttle/order/update/:id", routeHandler.UpdateStudentOrder)
 }
