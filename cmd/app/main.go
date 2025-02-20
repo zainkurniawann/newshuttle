@@ -12,7 +12,7 @@ import (
 	"github.com/spf13/viper"
 )
 
-func main() { 
+func main() {
 	utils.InitFirebase()
 	zerolog.InitLogger()
 
